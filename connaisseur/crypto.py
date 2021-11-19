@@ -1,7 +1,8 @@
 import base64
 import binascii
-import ecdsa
 import hashlib
+
+import ecdsa
 
 
 def verify_signature(

@@ -2,9 +2,10 @@ import base64
 import json
 import os
 import re
-import yaml
 from jsonschema import FormatChecker, validate, ValidationError
 from typing import Optional
+
+import yaml
 
 from connaisseur.exceptions import PathTraversalError
 
