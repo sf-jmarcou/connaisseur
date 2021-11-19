@@ -139,17 +139,18 @@ class Alert:
         return template
 
     def send_alert(self) -> Optional[requests.Response]:
+        response = None
         try:
             response = requests.post(
                 self.receiver_url, data=self.payload, headers=self.headers
             )
             response.raise_for_status()
             logging.info("sent alert to %s", self.template)
-            return response
         except Exception as err:
             logging.error(err)
             if self.throw_if_alert_sending_fails:
                 raise AlertSendingError(str(err)) from err
+        return response
 
     @staticmethod
     def __get_headers(receiver_config):
