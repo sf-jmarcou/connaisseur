@@ -1,4 +1,4 @@
-set -eo pipefail
+set -euo pipefail
 
 # This script is expected to be called from the root folder of Connaisseur
 declare -A DEPLOYMENT_RES=(["VALID"]="0" ["INVALID"]="0")
