@@ -35,7 +35,7 @@ jobs:
           - 56243:56243
     steps:
       - uses: actions/checkout@v2
-      - name: Install yq
+      - name: Install yq and bash
         run: |
           sudo snap install yq
           sudo apt update

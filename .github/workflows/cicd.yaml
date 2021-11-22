@@ -202,12 +202,12 @@ jobs:
       matrix:
         integration-test-arg:
           [
+            "stress-test",
             "regular",
             "cosign",
             "namespace-val",
             "deployment",
             "pre-config",
-            "stress-test",
           ]
     services:
       alerting-endpoint:
@@ -287,9 +287,9 @@ jobs:
           yq e '.policy +={"pattern": "docker.io/securesystemsengineering/connaisseur:v*"} | .policy[4].pattern style="double"' -i helm/values.yaml
           yq e '.policy[4].validator = "allow"' -i helm/values.yaml
           yq e '.deployment.replicasCount = "1"' -i helm/values.yaml
-      - name: Run preconfig and workload integration tests
+      - name: Run pre-config and workload integration tests
         run: |
-          bash tests/integration/integration-test.sh "workload"
+          bash tests/integration/integration-test.sh "pre-and-workload"
         shell: bash
 
   upgrade-test:

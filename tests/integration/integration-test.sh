@@ -1,7 +1,7 @@
 set -eo pipefail
 
 # This script is expected to be called from the root folder of Connaisseur
-declare -A DEPLOYMENT_VALIDITY=(["VALID"]="0" ["INVALID"]="0")
+declare -A DEPLOYMENT_RES=(["VALID"]="0" ["INVALID"]="0")
 RED="\033[0;31m"
 GREEN="\033[0;32m"
 NC="\033[0m"
@@ -11,7 +11,7 @@ EXIT="0"
 WOLIST=("CronJob" "DaemonSet" "Deployment" "Job" "Pod" "ReplicaSet" "ReplicationController" "StatefulSet")
 
 ### SINGLE TEST CASE ####################################
-single_test() { # ID TXT TYP IMG NS OUT VAL
+single_test() { # ID TXT TYP REF NS MSG RES
   echo -n "[$1] $2"
   if [[ "$3" == "deploy" ]]; then
     kubectl run pod-$1 --image="$4" --namespace="$5" >output.log 2>&1 || true
@@ -32,12 +32,12 @@ single_test() { # ID TXT TYP IMG NS OUT VAL
   fi
 
   if [[ $7 != "null" ]]; then
-    DEPLOYMENT_VALIDITY[$7]=$((${DEPLOYMENT_VALIDITY[$7]} + 1))
+    DEPLOYMENT_RES[$7]=$((${DEPLOYMENT_RES[$7]} + 1))
   fi
 }
 
 ### MULTI TEST CASE FROM FILE ####################################
-multi_test() {
+multi_test() { # TEST_CASE: key in the `test_cases` dict in the cases.yaml
   test_cases=$(yq e -o=json ".test_cases.$1" tests/integration/cases.yaml)
   len=$(echo ${test_cases} | jq 'length')
   for i in $(seq 0 $(($len - 1))); do
@@ -47,14 +47,14 @@ multi_test() {
     TYPE=$(echo ${test_case} | jq -r ".type")
     REF=$(echo ${test_case} | jq -r ".ref")
     NAMESPACE=$(echo ${test_case} | jq -r ".namespace")
-    MSG=$(echo ${test_case} | jq -r ".msg")
-    VALIDITY=$(echo ${test_case} | jq -r ".validity")
-    single_test "${ID}" "${TEST_CASE_TXT}" "${TYPE}" "${REF}" "${NAMESPACE}" "${MSG}" "${VALIDITY}"
+    EXP_MSG=$(echo ${test_case} | jq -r ".expected_msg")
+    EXP_RES=$(echo ${test_case} | jq -r ".expected_result")
+    single_test "${ID}" "${TEST_CASE_TXT}" "${TYPE}" "${REF}" "${NAMESPACE}" "${EXP_MSG}" "${EXP_RES}"
   done
 }
 
 ### WORKLOAD TEST ####################################
-workload_test() {
+workload_test() { # WORKLOAD_KIND
   export KIND=$1
   export APIVERSION=$(kubectl api-resources | awk -v KIND=${KIND} '{ if($NF == ""KIND"") print $(NF-2);}')
 
@@ -74,7 +74,7 @@ workload_test() {
 }
 
 ### STRESS TEST ####################################
-stress_test() {
+stress_test() { #
   NUMBER_OF_INSTANCES=100
   echo -n 'Testing Connaisseur with complex requests...'
   kubectl apply -f tests/integration/deployments/stresstest.yaml >output.log 2>&1 || true
@@ -108,7 +108,7 @@ stress_test() {
 }
 
 ### INSTALLING CONNAISSEUR ####################################
-install() {
+install_make() {
   echo -n "Installing Connaisseur..."
   make install >/dev/null || {
     echo -e "${FAILED}"
@@ -128,7 +128,7 @@ install_helm() {
 }
 
 ### UPGRADING CONNAISSEUR ####################################
-upgrade() {
+upgrade_make() {
   echo -n 'Upgrading Connaisseur...'
   make upgrade >/dev/null || {
     echo -e ${FAILED}
@@ -146,8 +146,8 @@ upgrade_helm() {
   echo -e "${SUCCESS}"
 }
 
-### UNINSTALING CONNAISSEUR ####################################
-uninstall() {
+### UNINSTALLING CONNAISSEUR ####################################
+uninstall_make() {
   echo -n 'Uninstalling Connaisseur...'
   make uninstall >/dev/null || {
     echo -e "${FAILED}"
@@ -166,7 +166,7 @@ uninstall_helm() {
   echo -e "${SUCCESS}"
 }
 
-update_values() {
+update_values() { # [EXPRESSION...]
   for update in "$@"; do
     yq e -i "${update}" helm/values.yaml
   done
@@ -195,11 +195,11 @@ regular_int_test() {
   ### ALERTING TEST ####################################
   echo -n "Checking whether alert endpoints have been called successfully..."
   ENDPOINT_HITS="$(curl -s ${ALERTING_ENDPOINT_IP}:56243 --header 'Content-Type: application/json')"
-  NUMBER_OF_DEPLOYMENTS=$((${DEPLOYMENT_VALIDITY["VALID"]} + ${DEPLOYMENT_VALIDITY["INVALID"]}))
+  NUMBER_OF_DEPLOYMENTS=$((${DEPLOYMENT_RES["VALID"]} + ${DEPLOYMENT_RES["INVALID"]}))
   EXPECTED_ENDPOINT_HITS=$(jq -n \
     --argjson REQUESTS_TO_SLACK_ENDPOINT ${NUMBER_OF_DEPLOYMENTS} \
-    --argjson REQUESTS_TO_OPSGENIE_ENDPOINT ${DEPLOYMENT_VALIDITY["VALID"]} \
-    --argjson REQUESTS_TO_KEYBASE_ENDPOINT ${DEPLOYMENT_VALIDITY["INVALID"]} \
+    --argjson REQUESTS_TO_OPSGENIE_ENDPOINT ${DEPLOYMENT_RES["VALID"]} \
+    --argjson REQUESTS_TO_KEYBASE_ENDPOINT ${DEPLOYMENT_RES["INVALID"]} \
     '{
   "successful_requests_to_slack_endpoint":$REQUESTS_TO_SLACK_ENDPOINT,
   "successful_requests_to_opsgenie_endpoint": $REQUESTS_TO_OPSGENIE_ENDPOINT,
@@ -233,7 +233,7 @@ namespace_val_int_test() {
 
   multi_test "ignore-namespace-val"
   update_values '.namespacedValidation.mode="validate"'
-  upgrade
+  upgrade_make
   multi_test "validate-namespace-val"
 }
 
@@ -249,22 +249,22 @@ pre_config_int_test() {
 
 case $1 in
 "regular")
-  install
+  install_make
   regular_int_test
-  uninstall
+  uninstall_make
   ;;
 "cosign")
-  install
+  install_make
   cosign_int_test
   ;;
 "namespace-val")
   update_values '.namespacedValidation.enabled=true'
-  install
+  install_make
   namespace_val_int_test
   ;;
 "deployment")
   update_values '.policy += {"pattern": "docker.io/library/*:*", "validator": "dockerhub-basics", "with": {"trust_root": "docker-official"}}'
-  install
+  install_make
   deployment_int_test
   ;;
 "pre-config")
@@ -272,28 +272,28 @@ case $1 in
   pre_config_int_test
   uninstall_helm
   ;;
-"workload")
-  install
+"pre-and-workload")
+  install_make
   pre_config_int_test
   for wo in "${WOLIST[@]}"; do
     workload_test "${wo}"
   done
   ;;
 "stress-test")
-  install
+  install_make
   stress_test
   ;;
 "all")
-  install
+  install_make
   regular_int_test
   cosign_int_test
   update_values '.namespacedValidation.enabled=true'
-  upgrade
+  upgrade_make
   namespace_val_int_test
   update_values '.namespacedValidation.enabled=false' '.policy += {"pattern": "docker.io/library/*:*", "validator": "dockerhub-basics", "with": {"trust_root": "docker-official"}}'
-  upgrade
+  upgrade_make
   deployment_int_test
-  uninstall
+  uninstall_make
   ;;
 *)
   EXIT="1"
