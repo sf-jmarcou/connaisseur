@@ -190,7 +190,6 @@ regular_int_test() {
   else
     echo -e "${SUCCESS}"
   fi
-  N=$(($N + 1))
 
   ### ALERTING TEST ####################################
   echo -n "Checking whether alert endpoints have been called successfully..."
